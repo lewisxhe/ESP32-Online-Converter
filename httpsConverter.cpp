@@ -6,7 +6,6 @@
 
 WiFiClientSecure client;
 
-
 const char *getstatus =
     "OPTIONS /file/send HTTP/1.1\r\n"
     "Host: www.onlineconverter.com\r\n"
@@ -18,6 +17,63 @@ const char *getstatus =
     "Accept-Encoding: gzip, deflate, br\r\n"
     "Accept-Language: zh,zh-CN;q=0.9,en;q=0.8\r\n"
     "\r\n\r\n";
+
+bool wait_server_response(String &request)
+{
+    int index = 0;
+    int retry = 5;
+    char status[64];
+    while (retry)
+    {
+        if (!client.connected())
+            return false;
+        Serial.printf("Send request >>> %d\n", retry);
+        client.print(request);
+        delay(1000);
+        Serial.print(client.readString());
+
+        client.readBytesUntil('\r', status, sizeof(status));
+
+        Serial.println(status);
+        if (!strncmp(status, "HTTP/1.1 302 Found", strlen("HTTP/1.1 302 Found")))
+        {
+            client.readString();
+        }
+        // HTTP/1.1 404 Not Found
+        else if (!strncmp(status, "HTTP/1.1 200 OK", strlen("HTTP/1.1 200 OK")))
+        {
+            Serial.println("Find:------");
+            while (1)
+            {
+                client.readBytesUntil('\r', status, sizeof(status));
+                Serial.print("Search:");
+
+                String str = String(status);
+                Serial.println(str);
+
+                index = str.indexOf("Content-Length:");
+                Serial.printf("Index: %d\n", index);
+                if (index)
+                {
+                    int s, e;
+                    str = str.substring(index);
+                    s = str.indexOf(" ");
+                    e = str.indexOf("\r\n");
+                    Serial.println(str.substring(s, e).toInt());
+                    return false;
+                }
+            }
+        }
+        else
+        {
+            client.readString();
+        }
+
+        delay(1000);
+        --retry;
+    }
+    return false;
+}
 
 // 文件流  网络流
 void online_converter(uint8_t *image, uint32_t size, uint32_t width, uint32_t height)
@@ -149,8 +205,6 @@ void online_converter(uint8_t *image, uint32_t size, uint32_t width, uint32_t he
         return;
     }
     part2 = client.readString();
-    //TODO: 判断是否busy
-    //.....
 
     part2 = part2.substring(part2.indexOf("https:"));
     part2 = part2.substring(0, part2.indexOf("\r\n"));
@@ -160,9 +214,17 @@ void online_converter(uint8_t *image, uint32_t size, uint32_t width, uint32_t he
     part2 = part2.substring(i);
     Serial.println("Src Path:" + part2);
 
+    //TODO: 判断是否busy
+    if (part2 == "/busy")
+    {
+        Serial.println("Server BUSY .... Wait a mintunes");
+        client.stop();
+        return;
+    }
+
     Serial.println("---------------- -END -----------------");
 
-    Serial.println("----------------part 2 ----------------");
+    Serial.println("----------------part 2 ----------------\n");
     //Get Request
     part1 = "GET /file" + part2 + "/download HTTP/1.1\r\n";
     part1 += "Host: www.onlineconverter.com\r\n";
@@ -175,33 +237,61 @@ void online_converter(uint8_t *image, uint32_t size, uint32_t width, uint32_t he
     part1 += "Accept-Language: zh,zh-CN;q=0.9,en;q=0.8\r\n";
     part1 += "\r\n\r\n";
 
-    client.print(part1);
+    wait_server_response(part1);
 
-    delay(2000);
-
-    Serial.println("Send request : ");
-    Serial.println(part1);
-    Serial.println("---------------- -END -----------------");
-
-    Serial.println("Response ----");
-    // 等待下载文件
-    Serial.println("----------------part 3 ----------------");
-
-    Serial.println(client.readString());
     return;
 
-    bzero(status, sizeof(status));
-    client.readBytesUntil('\r', status, sizeof(status));
+    i = 0;
+    while (1)
+    {
+        delay(3000);
+
+        client.print(part1);
+        Serial.println("Send request : *-----------------------");
+        Serial.print(part1);
+        Serial.println("---------------- -END -----------------");
+
+        Serial.println("Response ------------------------------");
+        // 等待下载文件
+        Serial.println("----------------part 3 ----------------");
+        while (1)
+        {
+            if (++i > 3)
+            {
+                return;
+            }
+            Serial.println(client.readString());
+            delay(2000);
+            client.print(part1);
+        }
+        return;
+
+        bzero(status, sizeof(status));
+        client.readBytesUntil('\r', status, sizeof(status));
+
+        Serial.println(status);
+        if (!strncmp(status, "HTTP/1.1 302 Found", strlen("HTTP/1.1 302 Found")))
+        {
+            //keep request
+            continue;
+        }
+        else if (!strncmp(status, "HTTP/1.1 200 OK", strlen("HTTP/1.1 200 OK")))
+        {
+            break;
+        }
+        else
+        {
+            Serial.print("Unexpected response: ");
+            Serial.println(status);
+            client.stop();
+            return;
+        }
+    }
 
     Serial.println(status);
+    Serial.println(client.readString());
 
-    if (strncmp(status, "HTTP/1.1 200 OK", strlen("HTTP/1.1 200 OK")))
-    {
-        Serial.print("Unexpected response: ");
-        Serial.println(status);
-        client.stop();
-        return;
-    }
+    return;
 
     String response = "";
     int start, end, r, rbytes;
