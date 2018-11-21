@@ -18,7 +18,7 @@ const char *getstatus =
     "Accept-Language: zh,zh-CN;q=0.9,en;q=0.8\r\n"
     "\r\n\r\n";
 
-bool wait_server_response(String &request)
+size_t wait_server_response(String &request)
 {
     int index = 0;
     int retry = 5;
@@ -26,11 +26,11 @@ bool wait_server_response(String &request)
     while (retry)
     {
         if (!client.connected())
-            return false;
+            return 0;
         Serial.printf("Send request >>> %d\n", retry);
         client.print(request);
         delay(1000);
-        Serial.print(client.readString());
+        // Serial.print(client.readString());
 
         client.readBytesUntil('\r', status, sizeof(status));
 
@@ -53,14 +53,14 @@ bool wait_server_response(String &request)
 
                 index = str.indexOf("Content-Length:");
                 Serial.printf("Index: %d\n", index);
-                if (index)
+                if (index > 0)
                 {
                     int s, e;
                     str = str.substring(index);
                     s = str.indexOf(" ");
                     e = str.indexOf("\r\n");
                     Serial.println(str.substring(s, e).toInt());
-                    return false;
+                    return str.substring(s, e).toInt();
                 }
             }
         }
@@ -72,12 +72,38 @@ bool wait_server_response(String &request)
         delay(1000);
         --retry;
     }
-    return false;
+    return 0;
 }
 
 // 文件流  网络流
 void online_converter(uint8_t *image, uint32_t size, uint32_t width, uint32_t height)
 {
+
+    if (!client.connect(HTTPS_HOST, HTTPS_PORT))
+    {
+        Serial.println("Connection failed");
+        return;
+    }
+    String id = "/10aad46065908e64e98473efff4f22afe9";
+    String part1 = "GET /file" + id + "/download HTTP/1.1\r\n";
+    part1 += "Host: www.onlineconverter.com\r\n";
+    // part1 += "Connection: keep-alive\r\n";
+    // part1 += "Upgrade-Insecure-Requests: 1\r\n";
+    // part1 += "User-Agent: Mozilla/5.0 (Linux; Android 8.0.0; LG-US998) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/70.0.3538.80 Mobile Safari/537.36\r\n";
+    // part1 += "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8\r\n";
+    // part1 += "Referer: https://www.onlineconverter.com/convert" + id + "\r\n";
+    // part1 += "Accept-Encoding: gzip, deflate, br\r\n";
+    // part1 += "Accept-Language: zh,zh-CN;q=0.9,en;q=0.8\r\n";
+    part1 += "\r\n\r\n";
+
+    wait_server_response(part1);
+
+    //test end
+    return;
+    //***************************************************//
+#if 0
+
+
     size_t srcSize = size;
     size_t offset = 0;
     size_t ret = 0;
@@ -323,4 +349,5 @@ void online_converter(uint8_t *image, uint32_t size, uint32_t width, uint32_t he
 
     client.stop();
     delete[] buf;
+#endif
 }
